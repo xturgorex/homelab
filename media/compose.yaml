@@ -17,61 +17,30 @@ networks:
         - subnet: 172.39.0.0/24
 
 services:
-  # airvpn recommended (referral url: https://airvpn.org/?referred_by=673908)
-  gluetun:
-    image: qmcgaw/gluetun
-    container_name: gluetun
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun # If running on an LXC see readme for more info.
-    networks:
-      servarrnetwork:
-        ipv4_address: 172.39.0.2
-    ports:
-      - ${FIREWALL_VPN_INPUT_PORTS}:${FIREWALL_VPN_INPUT_PORTS} # airvpn forwarded port, pulled from .env
-      - 8080:8080 # qbittorrent web interface
-      - 6881:6881 # qbittorrent torrent port
-      - 6789:6789 # nzbget
-      - 9696:9696 # prowlarr
-    volumes:
-      - ./gluetun:/gluetun
-    # Make a '.env' file in the same directory.
-    env_file:
-      - .env
-    healthcheck:
-      test: ping -c 1 www.google.com || exit 1
-      interval: 20s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
-
+## qbittorrent first pass.
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: qbittorrent
-    restart: unless-stopped
-    labels:
-      - deunhealth.restart.on.unhealthy=true
+    image: lscr.io/linuxserver/qbittorrent:latest  # LinuxServer's latest qbittorrent image
+    container_name: qbittorrent                     # Name of the container instance
+    restart: unless-stopped                         # Restart policy to keep it running
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - WEBUI_PORT=8080 # must match "qbittorrent web interface" port number in gluetun's service above
-      - TORRENTING_PORT=${FIREWALL_VPN_INPUT_PORTS} # airvpn forwarded port, pulled from .env
+      - PUID=${PUID}                                # User ID for file permissions (defined in .env)
+      - PGID=${PGID}                                # Group ID for file permissions (defined in .env)
+      - TZ=${TZ}                                    # Timezone setting (e.g., America/Denver)
+      - WEBUI_PORT=${QBITTORRENT_WEBUI_PORT}        # Web UI port (internal to container)
+      - TORRENTING_PORT=${QBITTORRENT_PORT}         # Torrent port (for incoming connections)
     volumes:
-      - ./qbittorrent:/config
-      - /data:/data
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
-    network_mode: service:gluetun
+      - ${ARRPATH}/qbittorrent:/config              # Config directory mapped from host
+      - ${MEDIAPATH}:/data                          # Media directory shared with container
+    ports:
+      - "${QBITTORRENT_WEBUI_PORT}:${QBITTORRENT_WEBUI_PORT}/tcp"   # Web UI access
+      - "${QBITTORRENT_PORT}:${QBITTORRENT_PORT}/tcp"               # Torrent TCP port
+      - "${QBITTORRENT_PORT}:${QBITTORRENT_PORT}/udp"               # Torrent UDP port
     healthcheck:
-      test: ping -c 1 www.google.com || exit 1
-      interval: 60s
-      retries: 3
-      start_period: 20s
-      timeout: 10s
+      test: ping -c 1 1.1.1.1 || exit 1              # Basic connectivity check
+      interval: 60s                                  # Time between checks
+      retries: 3                                     # Retry count before marking unhealthy
+      start_period: 20s                              # Delay before first check
+      timeout: 10s                                   # Timeout for each check
 
   # See the 'qBittorrent Stalls with VPN Timeout' section for more information.
   deunhealth:
